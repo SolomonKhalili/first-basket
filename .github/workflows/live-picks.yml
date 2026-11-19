@@ -11,7 +11,7 @@ name: live-picks
 
 on:
   schedule:
-    - cron: "*/20 13-23 * * *"
+    - cron: "*/20 10-23 * * *"          # from ~6 AM New York time (odds are logged from opening)
     - cron: "*/20 0-4 * * *"
     - cron: "7 9 * * *"
   workflow_dispatch:
@@ -42,7 +42,7 @@ jobs:
           kind=live
           [ "${{ github.event_name }}" = "workflow_dispatch" ] && kind="${{ inputs.kind }}"
           [ "${{ github.event.schedule }}" = "7 9 * * *" ] && kind=once
-          if [ "$kind" = "live" ] && [ "$(date +%H)" -lt 9 ]; then kind=skip; fi    # nothing to watch overnight
+          if [ "$kind" = "live" ] && [ "$(date +%H)" -lt 6 ]; then kind=skip; fi    # from 6 AM: log the odds from when they open
           echo "kind=$kind" >> "$GITHUB_OUTPUT"; echo "Run kind: $kind"
 
       - name: Get the private code and saved data
