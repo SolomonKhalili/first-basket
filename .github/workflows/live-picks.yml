@@ -26,6 +26,7 @@ concurrency:
 
 permissions:
   contents: write
+  actions: write       # to start itself again with new code (see the last step)
 
 jobs:
   picks:
@@ -82,3 +83,10 @@ jobs:
         run: |
           cd app
           python -u publish.py --${{ steps.kind.outputs.kind }} --out ../site_out 2>> run.log || { echo "stopped with an error (details in the private log)"; exit 1; }
+
+      - name: Start again with the new code
+        # publish.py stops when GitHub's main has newer code (and leaves app/.restart): start a fresh run right away
+        if: always() && hashFiles('app/.restart') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run live-picks.yml -R ${{ github.repository }} -f kind=live && echo "started a fresh run with the new code"
