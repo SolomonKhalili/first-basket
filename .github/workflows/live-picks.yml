@@ -1,0 +1,84 @@
+# Keeps the First Basket website live, with nobody running anything. Lives in the PUBLIC website repo
+# (SolomonKhalili/first-basket), where GitHub Actions minutes are unlimited and free.
+#   • every 20 minutes from ~9 AM to ~midnight New York time: if games are still to come, it stays on and re-checks
+#     FanDuel's odds, NBA.com's lineups (Expected -> Confirmed) and injuries every 3 minutes near tip-offs (every
+#     15 minutes otherwise), re-runs the picks and republishes whenever something changes. A new run waits for the
+#     current one, so there's always one on duty until the last tip-off.
+#   • nightly ~4 AM: files last night's results, refreshes the spreadsheet/CSV, retrains, republishes.
+# The code and model stay in the PRIVATE repo: this job downloads them with a secret key, and its public log only
+# says "published" / "no change" (details go to a private log saved with the data).
+name: live-picks
+
+on:
+  schedule:
+    - cron: "*/20 13-23 * * *"
+    - cron: "*/20 0-4 * * *"
+    - cron: "7 9 * * *"
+  workflow_dispatch:
+    inputs:
+      kind:
+        description: "live (stay on until every game has tipped) · once (one update)"
+        default: live
+
+concurrency:
+  group: live-picks
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  picks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    env:
+      TZ: America/New_York
+      SITE_DATA_KEY: ${{ secrets.SITE_DATA_KEY }}
+    steps:
+      - name: Which kind of run
+        id: kind
+        run: |
+          kind=live
+          [ "${{ github.event_name }}" = "workflow_dispatch" ] && kind="${{ inputs.kind }}"
+          [ "${{ github.event.schedule }}" = "7 9 * * *" ] && kind=once
+          if [ "$kind" = "live" ] && [ "$(date +%H)" -lt 9 ]; then kind=skip; fi    # nothing to watch overnight
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"; echo "Run kind: $kind"
+
+      - name: Get the private code and saved data
+        if: steps.kind.outputs.kind != 'skip'
+        env:
+          KEY: ${{ secrets.PRIVATE_REPO_KEY }}
+        run: |
+          mkdir -p ~/.ssh && printf '%s\n' "$KEY" > ~/.ssh/app_key && chmod 600 ~/.ssh/app_key
+          echo "GIT_SSH_COMMAND=ssh -i $HOME/.ssh/app_key -o StrictHostKeyChecking=accept-new" >> "$GITHUB_ENV"
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/app_key -o StrictHostKeyChecking=accept-new"
+          git clone -q --depth 1 git@github.com:SolomonKhalili/First_Basket.git app
+          cd app && git fetch -q --depth 1 origin state && git checkout -q FETCH_HEAD -- . && echo "ready"
+          # publishing to this repo uses the job's own token, kept out of commands and logs
+          git config --global url."https://x-access-token:${{ github.token }}@github.com/".insteadOf "https://github.com/"
+
+      - uses: actions/setup-python@v7
+        if: steps.kind.outputs.kind != 'skip'
+        with:
+          python-version: "3.12"
+
+      - name: Worth running now?
+        id: check
+        if: steps.kind.outputs.kind == 'live'
+        run: |
+          pip install -q requests
+          cd app && (python publish.py --should-run hourly || echo "skip=1" >> "$GITHUB_OUTPUT")
+
+      - name: Install
+        if: steps.kind.outputs.kind != 'skip' && steps.check.outputs.skip != '1'
+        run: pip install -q -r app/requirements.txt > /dev/null
+
+      - name: Update picks and publish
+        if: steps.kind.outputs.kind != 'skip' && steps.check.outputs.skip != '1'
+        env:
+          SITE_REMOTE: https://github.com/${{ github.repository }}.git
+          SITE_BRANCH: gh-pages
+          STATE_REMOTE: git@github.com:SolomonKhalili/First_Basket.git
+        run: |
+          cd app
+          python -u publish.py --${{ steps.kind.outputs.kind }} --out ../site_out 2>> run.log || { echo "stopped with an error (details in the private log)"; exit 1; }
