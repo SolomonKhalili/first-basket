@@ -62,6 +62,8 @@ jobs:
         if: steps.kind.outputs.kind != 'skip'
         with:
           python-version: "3.12"
+          cache: pip                                   # keep downloaded packages between runs (~1 min faster start)
+          cache-dependency-path: app/requirements.txt
 
       - name: Worth running now?
         id: check
