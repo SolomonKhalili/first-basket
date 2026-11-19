@@ -14,6 +14,7 @@ on:
     - cron: "*/20 10-23 * * *"          # from ~6 AM New York time (odds are logged from opening)
     - cron: "*/20 0-4 * * *"
     - cron: "7 9 * * *"
+    - cron: "*/30 5-10 * * *"          # midnight – 6 AM New York: when do the first-basket markets open?
   workflow_dispatch:
     inputs:
       kind:
@@ -42,7 +43,7 @@ jobs:
           kind=live
           [ "${{ github.event_name }}" = "workflow_dispatch" ] && kind="${{ inputs.kind }}"
           [ "${{ github.event.schedule }}" = "7 9 * * *" ] && kind=once
-          if [ "$kind" = "live" ] && [ "$(date +%H)" -lt 6 ]; then kind=skip; fi    # from 6 AM: log the odds from when they open
+          if [ "$kind" = "live" ] && [ "$(date +%H)" -lt 6 ]; then kind=odds; fi    # midnight–6 AM: odds only (when markets open)
           echo "kind=$kind" >> "$GITHUB_OUTPUT"; echo "Run kind: $kind"
 
       - name: Get the private code and saved data
